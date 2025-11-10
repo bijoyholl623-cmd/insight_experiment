@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Онлайн‑эксперимент (инсайт, эмоции, Stroop)</title>
+  <title>Онлайн-эксперимент</title>
 
-  <!-- jsPsych 7 UMD -->
+  <!-- jsPsych 7 UMD via CDN -->
   <script src="https://unpkg.com/jspsych@7.3.3/dist/jspsych.umd.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.3/dist/jspsych.css">
   <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.4/dist/plugin-html-button-response.umd.js"></script>
@@ -20,28 +20,51 @@
 <div id="root"></div>
 
 <script>
+// ================= ГЛОБАЛЬНЫЕ НАСТРОЙКИ =================
+const COLLECT_URL = ""; // Вставьте сюда ссылку вашего Google Apps Script (если пусто — отправка в таблицу отключена)
+const GROUP_LABELS = "control/stimulus"; // как просили
+
 const jsPsych = initJsPsych({
   display_element: 'root',
-  on_finish: function() {
+  on_finish: async function() {
     const pid = window.participant_id;
+    const csv = jsPsych.data.get().csv();
     jsPsych.data.get().localSave('csv', `data_${pid}.csv`);
+
+    if (COLLECT_URL && COLLECT_URL.length > 10) {
+      try {
+        await fetch(COLLECT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            participant_id: pid,
+            timestamp: new Date().toISOString(),
+            payload_csv: csv
+          })
+        });
+      } catch(e) { console.warn('Отправка в Google Sheets не удалась:', e); }
+    }
   }
 });
 
 const participant_id = Math.floor(Math.random()*1e9);
-const assigned_group = (Math.random() < 0.5) ? "control" : "stimulus";
+const assigned_group = (Math.random() < 0.5) ? "control" : "stimulus"; // B) случайное распределение
 
+// ================= УТИЛИТЫ =================
 function norm(s){ return (s||'').toLowerCase().replace(/ё/g,'е').trim(); }
 function includesAny(answer, keys){
   const a = norm(answer);
   return keys.some(k => a.includes(norm(k)));
 }
 
-const STIMULUS_FILE = "./audio/stimulus_90s.wav";
-const STIMULUS_DURATION_MS = 90000;
+// ================= ПАРАМЕТРЫ =================
+const AUDIO_FILE = "./audio/stimulus_AB_90s_lufs-23.wav"; // как вы выбрали (AB)
+const STIMULUS_DURATION_MS = 90000; // 90 секунд
 const ISI_SHORT = 3000;
 const ISI_LONG  = 5000;
 
+// Кнопки цвета для Stroop (крупные, под мобильные)
 const COLOR_CHOICES = [
   {label:"КРАСНЫЙ", css:"red",   code:"RED"},
   {label:"СИНИЙ",   css:"blue",  code:"BLUE"},
@@ -50,21 +73,22 @@ const COLOR_CHOICES = [
 ];
 const STROOP_WORDS = ["КРАСНЫЙ","СИНИЙ","ЗЕЛЁНЫЙ","ЖЁЛТЫЙ"];
 
+// ================= PANAS (Осин, 2012) =================
 const panas_items = [
-  "Активный", "Взволнованный", "Сильный", "Воодушевлённый", "Гордый",
-  "Бдительный", "Восторженный", "Вдохновлённый", "Решительный", "Внимательный",
-  "Встревоженный", "Расстроенный", "Испуганный", "Виноватый", "Раздражённый",
-  "Нервный", "Пугающийся", "Напряжённый", "Стыдящийся", "Смущённый"
+  "Активный","Взволнованный","Сильный","Воодушевлённый","Гордый",
+  "Бдительный","Восторженный","Вдохновлённый","Решительный","Внимательный",
+  "Встревоженный","Расстроенный","Испуганный","Виноватый","Раздражённый",
+  "Нервный","Пугающийся","Напряжённый","Стыдящийся","Смущённый"
 ];
-const panas_scale = ["1","2","3","4","5"];
 const PANAS_BLOCK = {
   type: jsPsych.plugins['survey-likert'],
   preamble: "<div class='card'><h2>PANAS</h2><p>Отметьте, как вы чувствуете себя <b>сейчас</b>.</p></div>",
-  questions: panas_items.map(t => ({prompt: t, labels: panas_scale, required:true})),
+  questions: panas_items.map(t => ({prompt: t, labels:["1","2","3","4","5"], required:true})),
   randomize_question_order: false,
-  on_finish: (d)=>{ d.participant_id = participant_id; d.block="PANAS"; d.group=assigned_group; }
+  on_finish: (d)=>{ d.participant_id=participant_id; d.block="PANAS"; d.group=assigned_group; }
 };
 
+// ================= ДЕМОГРАФИЯ =================
 const DEMO = {
   type: jsPsych.plugins['survey-text'],
   preamble: "<div class='card'><h2>Короткая анкета</h2><p>Пожалуйста, заполните поля ниже.</p></div>",
@@ -77,6 +101,8 @@ const DEMO = {
   on_finish: (d)=>{ d.participant_id=participant_id; d.block="demographics"; d.group=assigned_group; }
 };
 
+// ================= НАБОРЫ ЗАДАЧ =================
+// Анаграммы
 const ANAG_A1 = [
   {letters:"ГАНИК",   answer:"КНИГА",   diff:"P"},
   {letters:"ТРЕАТ",   answer:"ТЕАТР",   diff:"M"},
@@ -92,6 +118,7 @@ const ANAG_A2 = [
   {letters:"РАТЕЛКА", answer:"ТАРЕЛКА", diff:"H"},
 ];
 
+// CRA
 const CRA_C1 = [
   {words:["ЗУБ","МОРЕ","МОЛОКО"],     answer:"БЕЛЫЙ", diff:"P"},
   {words:["ВОДА","ЛЁД","КРИСТАЛЛ"],   answer:"СНЕГ",  diff:"M"},
@@ -107,6 +134,7 @@ const CRA_C2 = [
   {words:["ПЕРО","ЗВУК","СЕТЬ"],      answer:"ПТИЦА", diff:"H"},
 ];
 
+// Инсайт
 const INS_I1 = [
   {title:"Треугольники из спичек (1 ход)",
    text:"Из 6 спичек сложены 2 одинаковых треугольника, соприкасающихся вершинами. Переложите 1 спичку, чтобы получилось 3 одинаковых треугольника. Кратко опишите идею.",
@@ -130,24 +158,17 @@ const INS_I2 = [
    keys:["п-образн","рамка","внутрь"]},
 ];
 
+// ============== ГЕНЕРАТОРЫ С ПРОСЛЕДОВАТЕЛЬНЫМИ СТРАНИЦАМИ ==============
 function anagramTrial(setName, item, idx){
   const t = {
     type: jsPsych.plugins['survey-text'],
-    preamble: `<div class='card'><h3>Анаграмма</h3><p>Введите <b>одно слово</b>.</p><p style="font-size:32px;letter-spacing:1px"><b>${item.letters}</b></p><p class='small'>Время: 30 секунд</p></div>`,
+    preamble: `<div class='card'><h3>Анаграмма</h3><p>Введите <b>одно слово</b>.</p><p style='font-size:32px;letter-spacing:1px'><b>${item.letters}</b></p><p class='small'>Время: 30 секунд</p></div>`,
     questions: [{prompt:"Ответ:", required:false, name:"ans"}],
     trial_duration: 30000,
     on_finish: (d)=>{
       const ans = d.response ? (d.response.ans || "") : "";
       const correct = (norm(ans) === norm(item.answer));
-      d.participant_id = participant_id;
-      d.group = assigned_group;
-      d.task = "anagram";
-      d.set = setName;
-      d.item_index = idx+1;
-      d.diff = item.diff;
-      d.target = item.answer;
-      d.response_text = ans;
-      d.correct = +correct;
+      Object.assign(d, {participant_id, group:assigned_group, task:"anagram", set:setName, item_index:idx+1, diff:item.diff, target:item.answer, response_text:ans, correct:+correct});
     }
   };
   const meta = {
@@ -155,37 +176,24 @@ function anagramTrial(setName, item, idx){
     stimulus: "<div class='card'><p>Как вы пришли к решению?</p></div>",
     choices: ["Интуиция","Логика"],
     on_finish: (dd)=>{
-      dd.participant_id = participant_id;
-      dd.group = assigned_group;
-      dd.task = "anagram_meta";
-      dd.set = setName;
-      dd.item_index = idx+1;
-      dd.insight_flag = (dd.response===0)?1:0;
+      Object.assign(dd, {participant_id, group:assigned_group, task:"anagram_meta", set:setName, item_index:idx+1, insight_flag:(dd.response===0)?1:0});
     }
   };
   const isi = { type: jsPsych.plugins['html-keyboard-response'], stimulus:"<div class='fix'>+</div>", choices:"NO_KEYS", trial_duration: ISI_SHORT,
-    on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.task="fix"; d.set=setName; d.item_index=idx+1; } };
+    on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, task:"fix", set:setName, item_index:idx+1}); } };
   return [t, meta, isi];
 }
 
 function craTrial(setName, item, idx){
   const t = {
     type: jsPsych.plugins['survey-text'],
-    preamble: `<div class='card'><h3>CRA</h3><p>Подберите <b>одно слово</b>, связанное с тремя:</p><p style="font-size:24px"><b>${item.words.join(" — ")}</b></p><p class='small'>Время: 25 секунд</p></div>`,
+    preamble: `<div class='card'><h3>CRA</h3><p>Подберите <b>одно слово</b>, связанное с тремя:</p><p style='font-size:24px'><b>${item.words.join(" — ")}</b></p><p class='small'>Время: 25 секунд</p></div>`,
     questions: [{prompt:"Ответ:", required:false, name:"ans"}],
     trial_duration: 25000,
     on_finish: (d)=>{
       const ans = d.response ? (d.response.ans || "") : "";
       const correct = (norm(ans) === norm(item.answer));
-      d.participant_id = participant_id;
-      d.group = assigned_group;
-      d.task = "cra";
-      d.set = setName;
-      d.item_index = idx+1;
-      d.diff = item.diff;
-      d.target = item.answer;
-      d.response_text = ans;
-      d.correct = +correct;
+      Object.assign(d, {participant_id, group:assigned_group, task:"cra", set:setName, item_index:idx+1, diff:item.diff, target:item.answer, response_text:ans, correct:+correct});
     }
   };
   const meta = {
@@ -193,35 +201,24 @@ function craTrial(setName, item, idx){
     stimulus: "<div class='card'><p>Как вы пришли к решению?</p></div>",
     choices: ["Интуиция","Логика"],
     on_finish: (dd)=>{
-      dd.participant_id = participant_id;
-      dd.group = assigned_group;
-      dd.task = "cra_meta";
-      dd.set = setName;
-      dd.item_index = idx+1;
-      dd.insight_flag = (dd.response===0)?1:0;
+      Object.assign(dd, {participant_id, group:assigned_group, task:"cra_meta", set:setName, item_index:idx+1, insight_flag:(dd.response===0)?1:0});
     }
   };
   const isi = { type: jsPsych.plugins['html-keyboard-response'], stimulus:"<div class='fix'>+</div>", choices:"NO_KEYS", trial_duration: ISI_SHORT,
-    on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.task="fix"; d.set=setName; d.item_index=idx+1; } };
+    on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, task:"fix", set:setName, item_index:idx+1}); } };
   return [t, meta, isi];
 }
 
 function insightTrial(setName, item, idx){
   const t = {
     type: jsPsych.plugins['survey-text'],
-    preamble: `<div class='card'><h3>Инсайт‑задача</h3><p class='small'>Кратко опишите идею решения (если она появилась).</p><p><b>${item.title}</b></p><p class='small left'>${item.text}</p><p class='small'>Время: до 90 секунд</p></div>`,
+    preamble: `<div class='card'><h3>Инсайт-задача</h3><p class='small'>Кратко опишите идею решения (если она появилась).</p><p><b>${item.title}</b></p><p class='small left'>${item.text}</p><p class='small'>Время: до 90 секунд</p></div>`,
     questions: [{prompt:"Ваш ответ/идея:", required:false, name:"ans"}],
     trial_duration: 90000,
     on_finish: (d)=>{
       const ans = d.response ? (d.response.ans || "") : "";
       const ok = includesAny(ans, item.keys);
-      d.participant_id = participant_id;
-      d.group = assigned_group;
-      d.task = "insight";
-      d.set = setName;
-      d.item_index = idx+1;
-      d.response_text = ans;
-      d.autocheck = +ok;
+      Object.assign(d, {participant_id, group:assigned_group, task:"insight", set:setName, item_index:idx+1, response_text:ans, autocheck:+ok});
     }
   };
   const meta = {
@@ -229,28 +226,25 @@ function insightTrial(setName, item, idx){
     stimulus: "<div class='card'><p>Как вы пришли к решению?</p></div>",
     choices: ["Интуиция","Логика","Не решил(а)"],
     on_finish: (dd)=>{
-      dd.participant_id = participant_id;
-      dd.group = assigned_group;
-      dd.task = "insight_meta";
-      dd.set = setName;
-      dd.item_index = idx+1;
-      dd.insight_flag = (dd.response===0)?1:0;
+      Object.assign(dd, {participant_id, group:assigned_group, task:"insight_meta", set:setName, item_index:idx+1, insight_flag:(dd.response===0)?1:0});
     }
   };
   const isi = { type: jsPsych.plugins['html-keyboard-response'], stimulus:"<div class='fix'>+</div>", choices:"NO_KEYS", trial_duration: ISI_LONG,
-    on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.task="fix"; d.set=setName; d.item_index=idx+1; } };
+    on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, task:"fix", set:setName, item_index:idx+1}); } };
   return [t, meta, isi];
 }
 
+// ================= СТИМУЛ (тишина/аудио) =================
 const STIMULUS_INTRO = {
   type: jsPsych.plugins['html-button-response'],
   stimulus: `<div class='card'>
-    <h3>Аудио‑пауза</h3>
-    <p>Сейчас будет 90 секунд ${assigned_group==='control' ? '<b>тишины</b>' : '<b>аудио‑стимула</b>'}.</p>
-    <p class='small notice'>Если звук не запускается автоматически на мобильном, нажмите «Начать».</p>
+    <h3>Пауза/аудио</h3>
+    <p>Сейчас будет 90 секунд ${assigned_group==='control' ? '<b>тишины</b>' : '<b>аудио-стимула</b>'}.</p>
+    <p class='small notice'>На телефоне звук стартует только после нажатия кнопки.</p>
+    <p class='small badge'>Группа: ${assigned_group}</p>
   </div>`,
   choices: ["Начать"],
-  on_finish: (d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.block="stimulus_intro"; }
+  on_finish: (d)=>{ Object.assign(d, {participant_id, group:assigned_group, block:"stimulus_intro"}); }
 };
 
 async function playSilence(ms){
@@ -274,17 +268,17 @@ const STIMULUS_BLOCK = (assigned_group === "control")
     choices: [],
     trial_duration: STIMULUS_DURATION_MS,
     on_load: ()=>{ playSilence(STIMULUS_DURATION_MS); },
-    on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.block="stimulus_silence"; }
+    on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, block:"stimulus_silence"}); }
   }
 : {
     type: jsPsych.plugins['audio-button-response'],
-    stimulus: STIMULUS_FILE,
-    prompt: `<div class='card'><p>Слушайте аудио‑стимул (90 сек)…</p><div class='fix'>+</div><p class='small'>Если звук не стартует, убедитесь, что громкость включена, и нажмите «Повторить».</p></div>`,
+    stimulus: AUDIO_FILE,
+    prompt: `<div class='card'><p>Слушайте аудиофрагмент (90 сек)…</p><div class='fix'>+</div></div>`,
     choices: [],
     response_ends_trial: false,
     trial_ends_after_audio: false,
     trial_duration: STIMULUS_DURATION_MS,
-    on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.block="stimulus_audio"; }
+    on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, block:"stimulus_audio"}); }
   };
 
 const MC_BLOCK = {
@@ -294,9 +288,10 @@ const MC_BLOCK = {
     {prompt:"Возбуждение / напряжение", labels:["0","1","2","3","4","5","6","7","8","9","10"], required:true},
     {prompt:"Валентность (неприятно → приятно)", labels:["-5","-4","-3","-2","-1","0","+1","+2","+3","+4","+5"], required:true}
   ],
-  on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.block="manipulation_check"; }
+  on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, block:"manipulation_check"}); }
 };
 
+// ================= STROOP 2×60 =================
 function makeStroopTrials(n=120){
   const trials = [];
   for(let i=0;i<n;i++){
@@ -312,7 +307,7 @@ function makeStroopTrials(n=120){
       <div class="btn-row">` +
         COLOR_CHOICES.map((c,idx)=>`<button class="jspsych-btn" data-choice="${idx}" style="background:${c.css};color:#000;min-width:120px">${c.label}</button>`).join("") +
       `</div>
-      <div class="color-key small">Нажмите кнопку соответствующего <b>ЦВЕТА</b></div>
+      <div class="small">Нажмите кнопку соответствующего <b>ЦВЕТА</b> слова</div>
     </div>`;
     trials.push({
       type: jsPsych.plugins['html-button-response'],
@@ -322,77 +317,75 @@ function makeStroopTrials(n=120){
       on_finish: (d)=>{
         const chosen = COLOR_CHOICES[d.response]?.label;
         const correct = (chosen === ink);
-        d.participant_id = participant_id;
-        d.group = assigned_group;
-        d.task = "stroop";
-        d.word = word;
-        d.ink = ink;
-        d.correct = +correct;
+        Object.assign(d, {participant_id, group:assigned_group, task:"stroop", word, ink, correct:+correct});
       }
     });
     trials.push({ type: jsPsych.plugins['html-keyboard-response'], stimulus:"<div class='fix'>+</div>", choices:"NO_KEYS", trial_duration: 400,
-      on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.task="stroop_fix"; }});
+      on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, task:"stroop_fix"}); }});
   }
   return trials;
 }
 
+// ================= ТАЙМЛАЙН =================
 const timeline = [];
 
+// Приветствие
 timeline.push({
   type: jsPsych.plugins['html-button-response'],
   stimulus: `<div class='card'>
     <h2>Добро пожаловать!</h2>
     <p>Это исследование посвящено решению задач и эмоциональному состоянию. Участие анонимно, вы можете прекратить в любой момент.</p>
-    <p class='small'>Группа назначается случайно: в середине будет либо 90 секунд тишины, либо аудио‑фрагмент.</p>
+    <p class='small'>В середине будет 90 секунд тишины или аудио (назначается случайно).</p>
     <p class='small badge'>ID: ${participant_id} · группа: ${assigned_group}</p>
   </div>`,
   choices: ["Продолжить"],
-  on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.block="welcome"; }
+  on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, block:"welcome"}); }
 });
 
 timeline.push(DEMO);
 timeline.push(PANAS_BLOCK);
 
+// Пул 1
 timeline.push({
   type: jsPsych.plugins['html-button-response'],
-  stimulus:"<div class='card'><h3>Пул 1</h3><p class='small'>Сначала анаграммы, затем CRA, затем короткие инсайт‑задачи. У задач есть ограничение времени.</p></div>",
+  stimulus:"<div class='card'><h3>Пул 1</h3><p class='small'>Анаграммы → CRA → инсайт. У задач есть ограничение времени.</p></div>",
   choices:["Начать"],
-  on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.block="pool1_start"; }
+  on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, block:"pool1_start"}); }
 });
-
 ANAG_A1.forEach((it,idx)=> timeline.push(...anagramTrial("A1", it, idx)));
 CRA_C1.forEach((it,idx)=> timeline.push(...craTrial("C1", it, idx)));
 INS_I1.forEach((it,idx)=> timeline.push(...insightTrial("I1", it, idx)));
 
+// Стимул
 timeline.push(STIMULUS_INTRO);
 timeline.push(STIMULUS_BLOCK);
 timeline.push(MC_BLOCK);
 
+// Пул 2
 timeline.push({
   type: jsPsych.plugins['html-button-response'],
   stimulus:"<div class='card'><h3>Пул 2</h3><p class='small'>Формат тот же, что и в первом блоке.</p></div>",
   choices:["Продолжить"],
-  on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.block="pool2_start"; }
+  on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, block:"pool2_start"}); }
 });
-
 ANAG_A2.forEach((it,idx)=> timeline.push(...anagramTrial("A2", it, idx)));
 CRA_C2.forEach((it,idx)=> timeline.push(...craTrial("C2", it, idx)));
 INS_I2.forEach((it,idx)=> timeline.push(...insightTrial("I2", it, idx)));
 
+// Stroop 2×60
 timeline.push({
   type: jsPsych.plugins['html-button-response'],
   stimulus:"<div class='card'><h3>Stroop</h3><p class='small'>Выбирайте кнопку, соответствующую <b>ЦВЕТУ</b> показанного слова.</p></div>",
   choices:["Начать"],
-  on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.block="stroop_intro"; }
+  on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, block:"stroop_intro"}); }
 });
-
 timeline.push(...makeStroopTrials(120));
 
 timeline.push({
   type: jsPsych.plugins['html-button-response'],
-  stimulus:"<div class='card'><h2>Спасибо!</h2><p class='small'>Данные сохранятся автоматически как CSV‑файл.</p></div>",
+  stimulus:"<div class='card'><h2>Спасибо!</h2><p class='small'>CSV-файл с результатами скачан автоматически. Если вы видите ошибки — разрешите скачивание файлов в браузере.</p></div>",
   choices:["Завершить"],
-  on_finish:(d)=>{ d.participant_id=participant_id; d.group=assigned_group; d.block="finish"; }
+  on_finish:(d)=>{ Object.assign(d, {participant_id, group:assigned_group, block:"finish"}); }
 });
 
 jsPsych.run(timeline);
